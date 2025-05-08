@@ -1,3 +1,7 @@
+## 0.0.1-beta.17
+
+* Support Android Auto.
+
 ## 0.0.1-beta.16
 
 * Support errorCode, errorMessage.

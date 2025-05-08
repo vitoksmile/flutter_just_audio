@@ -12,6 +12,7 @@ export 'package:audio_service/audio_service.dart' show MediaItem;
 
 late SwitchAudioHandler _audioHandler;
 late JustAudioPlatform _platform;
+AndroidAutoHandler? _androidAutoHandler;
 
 /// Provides the [init] method to initialise just_audio for background playback.
 class JustAudioBackground {
@@ -49,6 +50,7 @@ class JustAudioBackground {
     Duration rewindInterval = const Duration(seconds: 10),
     bool preloadArtwork = false,
     Map<String, dynamic>? androidBrowsableRootExtras,
+    AndroidAutoHandler? androidAutoHandler,
   }) async {
     WidgetsFlutterBinding.ensureInitialized();
     await _JustAudioBackgroundPlugin.setup(
@@ -70,6 +72,7 @@ class JustAudioBackground {
       rewindInterval: rewindInterval,
       preloadArtwork: preloadArtwork,
       androidBrowsableRootExtras: androidBrowsableRootExtras,
+      androidAutoHandler: androidAutoHandler,
     );
   }
 }
@@ -92,11 +95,13 @@ class _JustAudioBackgroundPlugin extends JustAudioPlatform {
     Duration rewindInterval = const Duration(seconds: 10),
     bool preloadArtwork = false,
     Map<String, dynamic>? androidBrowsableRootExtras,
+    AndroidAutoHandler? androidAutoHandler,
   }) async {
     _platform = JustAudioPlatform.instance;
     JustAudioPlatform.instance = _JustAudioBackgroundPlugin();
+    _androidAutoHandler = androidAutoHandler;
     _audioHandler = await AudioService.init(
-      builder: () => SwitchAudioHandler(BaseAudioHandler()),
+      builder: () => SwitchAudioHandler(_playerAudioHandler),
       config: AudioServiceConfig(
         androidResumeOnClick: androidResumeOnClick,
         androidNotificationChannelId: androidNotificationChannelId,
@@ -172,7 +177,6 @@ class _JustAudioPlayer extends AudioPlayerPlatform {
   _JustAudioPlayer({required this.initRequest}) : super(initRequest.id) {
     eventController.onCancel = _playerAudioHandler.cancelStreamSubscriptions;
     _playerAudioHandler._initPlayer(initRequest);
-    _audioHandler.inner = _playerAudioHandler;
     _audioHandler.customEvent
         .whereType<PlaybackEventMessage>()
         .listen(eventController.add);
@@ -719,6 +723,28 @@ class _PlayerAudioHandler extends BaseAudioHandler
         );
       });
 
+  // region Android Auto
+  @override
+  ValueStream<Map<String, dynamic>> subscribeToChildren(String parentMediaId) {
+    return _androidAutoHandler?.subscribeToChildren(parentMediaId) ??
+        super.subscribeToChildren(parentMediaId);
+  }
+
+  @override
+  Future<List<MediaItem>> getChildren(String parentMediaId,
+      [Map<String, dynamic>? options]) {
+    return _androidAutoHandler?.getChildren(parentMediaId) ??
+        super.getChildren(parentMediaId, options);
+  }
+
+  @override
+  Future<void> playFromMediaId(String mediaId,
+      [Map<String, dynamic>? extras]) async {
+    return _androidAutoHandler?.playFromMediaId(mediaId, extras) ??
+        super.playFromMediaId(mediaId, extras);
+  }
+  // endregion
+
   Duration get currentPosition {
     if (_playing &&
         _justAudioEvent.processingState == ProcessingStateMessage.ready) {
@@ -804,6 +830,22 @@ class _PlayerAudioHandler extends BaseAudioHandler
       errorMessage: _justAudioEvent.errorMessage,
     ));
   }
+}
+
+abstract class AndroidAutoHandler {
+  /// Get the children of a parent media item.
+  Future<List<MediaItem>> getChildren(String parentMediaId,
+      [Map<String, dynamic>? options]);
+
+  /// Get a value stream that emits service-specific options to send to the
+  /// client whenever the children under the specified parent change. The
+  /// emitted options may contain information about what changed. A client that
+  /// is subscribed to this stream should call [getChildren] to obtain the
+  /// changed children.
+  ValueStream<Map<String, dynamic>> subscribeToChildren(String parentMediaId);
+
+  /// Play a specific media item.
+  Future<void> playFromMediaId(String mediaId, [Map<String, dynamic>? extras]);
 }
 
 class _Seeker {
